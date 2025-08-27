@@ -1,0 +1,70 @@
+*  Advanced keyboard driven Desktop Environment
+Custom Linux desktop environment built on EXWM and Elisp programming language, integrated with Xorg.
+
+** Core Window Management
+- Built on **EXWM** (Emacs X Window Manager) with Xorg display server.
+- Supports **line-mode / char-mode** switching for flexible key handling.
+- Custom `anup/other-window` implementation for **multi-monitor aware window cycling**.
+- Mouse-focus handling via **exwm-mff** (mouse follows focus).
+- Window titles auto-renamed based on **application class + page title/URL**.
+- Configured **multi-monitor setups** (single, dual, triple) with `exwm-randr` hooks and custom refresh logic.
+- Defined custom **workspace-to-monitor mappings** (iMac + vertical + horizontal monitors).
+- Functions to move buffers across monitors (`C-c RET`).
+- Implemented `exwm-randr-refresh2` to fix EXWM triple monitor refresh bugs.
+
+** Input & Keybindings
+- Unified **global keybinding overrides** across all frames/monitors.
+- Mapped Emacs-style navigation (`C-n`, `C-p`, `C-f`, `C-b`, etc.) to X11 windows.
+- Copy/paste and undo mapped (`M-w`, `C-w`, `C-y`, `C-/`) consistently across Emacs and X apps.
+- Custom bindings for Google Chrome & Qutebrowser (reload, copy, navigation).
+- Added simulation keys for word/paragraph navigation, delete, select-all, etc.
+- Shortcuts for **launching external apps** (`C-c p`).
+- Disabled unused EXWM defaults (fullscreen, floating, hiding).
+- Made VS Code and Edwin always open in **char-mode**.
+
+** Application Integration
+- **Web browser integration**: Buffer names auto-sync with URL/title → enables **completion-based tab switching**.
+- Configured **qutebrowser session auto-wipe** on logout to avoid session restore.
+- Integrated **helm-exwm** for better Emacs vs EXWM buffer listing.
+- Added support for **exwm-edit** (edit textareas of X apps inside Emacs).
+- Leechblock-like filtering for Chrome app launch list.
+
+** UI & Usability
+- Responsive **multi-monitor DPI compromise** hacks (font resizing on iMac screen).
+- Adjusted **fringe size**, disabled scrollbars/menu-bar for a cleaner look.
+- Implemented **mouse auto-hide** with unclutter.
+- Custom fallback cursor (`xsetroot -cursor left_ptr`).
+- Font scaling hooks triggered after EXWM init.
+- Blackout screen on logout (disabled due to bugs).
+- Auto-bury windows from drawing tablet settings panel.
+
+** Startup & Autostart
+- System initialization via `~/.xinitrc` integrated into EXWM hooks.
+- Auto-start services:
+  - **Dropbox client**
+  - **NetworkManager applet**
+  - **Drawing tablet driver reload** (usbreset integration)
+  - **Pulseaudio / pamixer** volume control bindings
+  - **unclutter** (auto-hide mouse)
+  - **disable screen blanking / DPMS**
+- Configured **keyboard repeat rate** (200ms delay, 60/s repeat).
+- Environment variables for **XDG compliance**, GTK/QT integration, Java non-reparenting WM flag.
+- Planned autostart for compositor (xcompmgr), notifications (dunst), and polkit manager.
+
+** System Management
+- Functions to **shutdown, reboot, suspend, or kill X server** directly from Emacs.
+- Custom graceful shutdown hook bound to `kill-emacs`.
+- Functions to programmatically send keys (via xdotool) to background X apps (e.g., Rails app reload).
+
+** Buffer & Completion System
+- Fixed Helm/Ivy buffer switching to include EXWM buffers from all frames.
+- Customized helm/ivy **boring buffer filters** to hide temp, compile logs, mpv windows, etc.
+- Improved buffer switching completion (`C-x b`) ordering and filtering logic.
+- Dynamic completion integration across Emacs + X windows.
+
+** Miscellaneous
+- Auto-start and reset **drawing tablet driver** with usbreset + passwordless sudo.
+- Added **custom kill-ring browser** (`M-y`) integration.
+- Configurable **single / dual / triple monitor setups** via elisp functions.
+- Optional keybinding hacks (`C-s`, `C-k`, `C-o`, `M-<`, `M->`) mapped consistently to X apps.
+- Infrastructure for future keyboard remaps (CapsLock → Ctrl, trackpad disable).
