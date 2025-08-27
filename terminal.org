@@ -1,0 +1,469 @@
+* Shells & Terminals
+** M-x shell
+ #+begin_src emacs-lisp :tangle new2.el
+(put 'shell 'disabled "M-x shell can lead to destruction/truncation of ~/.bash_history or ~/.bash_infinite_history! Disabled0 command.")
+ #+end_src
+ 
+Use Emacs terminfo, not system terminfo
+#+begin_src emacs-lisp :tangle new2.el
+(setq system-uses-terminfo nil)
+#+end_src
+
+*** COMMENT toggle shell 
+#+begin_src emacs-lisp :tangle new2.el
+;;(if (file-executable-p "/bin/bash") (setq explicit-shell-file-name "/bin/bash"))
+;;(if (eq system-type 'berkeley-unix) (setq explicit-shell-file-name "/bin/sh"))
+
+;;(setq shell-file-name "/bin/bash")
+;;(set-process-query-on-exit-flag (get-process "*shell*") nil)
+
+;;shell toggle: the version that enters and executes the previous command
+;;I used to find auto execution of previous compile command useful during my Topcoder days
+(defun toggle-shell ()
+  "Toggles between terminal and current buffer (creates terminal, if none exists)"
+  (interactive)
+  (if (string= (buffer-name) "*shell*")
+      (switch-to-buffer (other-buffer (current-buffer)))
+    (progn
+      (when buffer-file-name (save-buffer))
+      (if (get-buffer "*shell*")
+          (progn
+            (switch-to-buffer "*shell*")
+            (comint-previous-input 1)
+            (comint-send-input));; pre compile command should be there already                   
+        (progn
+          (shell)
+          (set-process-query-on-exit-flag (get-process "*shell*") nil))))))
+
+;;simpler version that doesnt execute previous command
+(defun toggle-shell-simple0 ()
+  "Toggles between terminal and current buffer (creates terminal, if none exists) - doesnt execute previous command"
+  (interactive)
+  (if (string= (buffer-name) "*shell*")
+      (switch-to-buffer (other-buffer (current-buffer)))
+    (progn
+      (when buffer-file-name (save-buffer))
+      (if (get-buffer "*shell*")
+          (switch-to-buffer "*shell*")
+        (progn
+          (shell)
+          (set-process-query-on-exit-flag (get-process "*shell*") nil))))))
+
+;;set key only in c++-mode as auto pre compile enter might be dangerous
+;;(global-set-key (kbd "C-q") 'toggle-shell-simple0)
+
+;;I would prefer C-q should go back to latest *shell*<n>
+#+end_src
+
+*** COMMENT open shell in current directory & name it with shell<folder name>
+This keeps chopping off my bash_history to just 500 items!!
+So have disabled this package entirely!!
+Also, my vterm  is now able to do this
+#+begin_src emacs-lisp :tangle new2.el
+(use-package shell-here
+    :bind (:map global-map
+                ("C-c !" . shell-here))
+    :bind (:map org-mode-map
+                ("C-c !" . shell-here)))
+#+end_src
+** vterm: emacs shell with TUI support
+You can use =C-c C-t= to toggle copy-mode
+#+begin_src emacs-lisp :tangle new2.el
+;; ensure to install from brew: cmake, libtool, libvterm
+(use-package vterm
+  ;;keybinding disabled because I have bound eshell to it instead:
+  ;;:bind
+  ;;(("C-c $" . vterm)
+  ;; (:map org-mode-map                   ;org mode by default binds this to /archive this org heading/, which I dont use.
+  ;;              ("C-c $" . vterm)))
+  :init
+  (setq vterm-always-compile-module t)  ;recompile on update without asking user
+  :hook
+  ((vterm-mode . (lambda ()
+      	    (visual-line-mode -1)
+      	    (hl-line-mode -1)
+
+      	    ;;also try 3:- [[https://github.com/akermu/emacs-libvterm/issues/229][Content offset a couple lines · Issue #229 · akermu/emacs-libvterm]]
+      	    ;;(setq-local line-spacing nil)
+      	    ;;^doesnt solve the problem
+      	    ))
+   (vterm-copy-mode . (lambda ()
+      		  (hl-line-mode +1))))
+  :config
+  (setq vterm-max-scrollback 10000)
+  (setq vterm-buffer-name-string "*vterm*<%s>") ;;see [[help:vterm-buffer-name-string]]
+  <<vterm config>>)
+#+end_src
+
+TODO: compare this against rival package [[https://codeberg.org/akib/emacs-eat][akib/emacs-eat: Emulate A Terminal, in a region, in a buffer and in Eshell - Codeberg.org]]
+Its creator is an EXWM user [[https://www.youtube.com/watch?v=KQ5Jt-63G9U][EmacsConf 2023: Eat and Eat powered Eshell, fast featureful terminal inside Emacs - Akib Azmain T... - YouTube]]
+
+Both Vterm & Eat dont render the top few rows when running ~btop~, ~btm~. The bottom few rows are missed when running ~htop~.
+A temp workaround is to zoom out 5 to 6 times. ie =C-x C-= 6 times. This seems to fix it for ~btm~.
+
+TODO: disable beacon mode if inside vterm mode, is it possible to just disable this global mode for one particular minor mode?
+*** DONE vterm buffer name should update itself whenever you run a long running program such as htop
+ie, it should now rename itself to =*vterm*<htop>= if /htop is running/
+otherwise it should show current directory between angle brackets.
+#+begin_quote Add this to bashrc
+_prompt_command="${_prompt_command:+$_prompt_command; }"'echo -ne "\033]0;${HOSTNAME}:${PWD}\007"'
+#+end_quote
+
+*** Use bash as shell for vterm run from inside tramp
+#+begin_src emacs-lisp :noweb-ref "vterm config"
+(setq vterm-tramp-shells '(("docker" "/bin/sh") ("sshx" "/bin/bash")))
+#+end_src
+
+*** Avy should work in vterm
+#+begin_src emacs-lisp :noweb-ref "vterm config"
+(bind-key "M-i" 'avy-goto-char-timer 'vterm-mode-map)
+#+end_src
+
+** xonsh
+edit xonsh code
+#+begin_src emacs-lisp :tangle new2.el
+(use-package xonsh-mode
+  :mode (("\\.xsh\\'" . xonsh-mode)
+         ("\\.xonsh\\'" . xonsh-mode)))
+#+end_src
+
+launch xonsh interactively
+#+begin_src emacs-lisp :tangle new2.el
+(defun xonsh0 ()
+  (interactive)
+  (setq vterm-shell-bak vterm-shell)
+  (setq vterm-shell "/usr/bin/xonsh")
+  (vterm "*xonsh*")
+  (setq vterm-shell vterm-shell-bak))
+#+end_src
+** eshell main heading, eshell + eat
+#+begin_src emacs-lisp :tangle new2.el
+(use-package eshell
+  :bind
+  (("C-c $" . anoop/eshell)
+   (:map org-mode-map                   ;org mode by default binds this to /archive this org heading/, which I dont use.
+                ("C-c $" . anoop/eshell)))
+  :config
+  ;;disable eshell startup message
+  (setq eshell-modules-list (delq 'eshell-banner eshell-modules-list))
+  
+  ;;enable #+ begin_src eshell
+  (org-babel-do-load-languages 'org-babel-load-languages
+                               (append org-babel-load-languages
+				       '((eshell . t))))
+
+  <<eshell config>>)
+#+end_src
+
+Instead of switching to an existing eshell buffer, each time create a new eshell<2>, eshell<3> etc
+Let me create an elisp helper function that does this
+#+begin_src emacs-lisp :noweb-ref "eshell config"
+(defun anoop/eshell ()
+  "Like #'eshell, but it is always run with a prefix argument, therby creating a new eshell each time"
+  (interactive)
+  (let ((current-prefix-arg t))
+    (call-interactively #'eshell)))
+#+end_src
+
+=eat= claims to be awesome alternative to vterm.
+Let me try it out because I feel like vterm is feels kinda disconnected from elisp.
+
+#+begin_src emacs-lisp :tangle new2.el
+(use-package eat
+  :vc (:url "https://codeberg.org/akib/emacs-eat")
+  :custom
+  (eat-kill-buffer-on-exit t) ;;The last C-d should exit eat terminal
+  (eat-term-name "xterm-256color")
+  (eshell-visual-commands
+   '("vi" "vim" "screen" "tmux" "top" "htop" "less" "more" "lynx" "links" "ncftp" "mutt" "pine" "tin" "trn" "elm" "nmtui" "m4" "ncpamixer" "alsamixer"))
+  :custom-face (ansi-color-bright-blue ((t (:foreground "#00afff" :background "#00afff"))))
+  :bind (:map eat-semi-char-mode-map
+              ("M-o" . anup/other-window))
+  :config
+  (eat-eshell-mode)
+  (eat-eshell-visual-command-mode))
+#+end_src
+
+But, like vterm, eat too flickers when using ~btm~, ~btop~.
+
+Henceforth =M-x eshell= will have the ability to run TUI programs such as htop due to magic from /eat/ package.
+Wow! I can finally migrate away from vterm.
+
+(update:- I havent been able to get rid of vterm completely due to some minor niggles.
++eshell doesnt support bash aliases.+
+eshell has subtle differences from bash that lead to hard to find bugs. +Eg: ~yt-dlp~ doesnt work properly+)
+
+#+begin_quote If I want to run the original command, I can just add an asterisk, Eg: ~*ls -lh~
+~/vet0/app1 $ which *ls
+/usr/bin/ls
+~/vet0/app1 $ which ls
+eshell/ls is a byte-compiled Lisp function in ‘em-ls.el’.
+#+end_quote
+
+When I run, say, =htop=
+/eat/ automatically detected it as a TUI program. So, it will instead run it in an =eat= buffer.
+That buffer takes the name of the command run surrounded by asterisk, ie, =*htop*=
+Therefore, I have inadvertantly received [[*vterm buffer name should update itself whenever you run a long running program such as htop][a feature from my vterm]] setup that I love.
+
+eshell is not a terminal:-
+Remember, as the name suggests, e_shell is a shell whereas v_term is a term_inal emulator
+
++I hate line wrapping in my shells+
+#+begin_src emacs-lisp :tangle new2.el
+;;(add-hook 'eshell-mode-hook (lambda () (visual-line-mode -1)))
+;;also toggle word wrap off?
+#+end_src
+^Have disabled because so far word wrapping in eshell is welcome. =eat= is gracefully handling wide lined outputs such as from running =htop= automagically.
+
+hl line mode causes problems in eat. None of the below commented were working
+#+begin_src emacs-lisp :tangle new2.el
+;;(add-hook 'term-mode-hook (lambda () (hl-line-mode -1)))
+;;(add-hook 'eat-eshell-mode-hook (lambda () (hl-line-mode -1)))
+;;(add-hook 'eat-eshell-visual-command-mode-hook (lambda () (hl-line-mode -1)))
+;;(add-hook 'eat-mode-hook (lambda () (hl-line-mode -1)))
+;;(add-hook 'eat--char-mode-hook (lambda () (hl-line-mode -1)))
+;;(add-hook 'eat--semi-char-mode-hook (lambda () (hl-line-mode -1)))
+
+(add-hook 'eat-mode-hook 'anoop/disable-hl-line-mode-for-buffer)
+#+end_src
+
+Let me level up my eshell game by reading up on [[https://www.masteringemacs.org/article/complete-guide-mastering-eshell][Mastering Eshell - Mastering Emacs]]
+
++I want to move away from bash scripts. Hence, below tells eshell to give precedence to eshell functions over bash builtins and bashrc functions.+
+^This creates problems such as =rg= binary being remapped to =rg.el= library, which I dont prefer.
+#+begin_src emacs-lisp :tangle new2.el
+(setq eshell-prefer-lisp-functions nil)
+#+end_src
+
+Interop between eshell and shell functions
+=$= denotes evaluation of form as elisp
+#+begin_src 
+echo $(/ 22 7.0)
+#+end_src
+
+eshell can redirect output from shell commands to a buffer
+#+begin_src
+cat mylog.log >> #<buffer my-temp-buffer-name>
+#+end_src
+^A helpful shortcut is =M-x eshell-insert-buffer-name=
+
++Also, it might be worthwhile to enable exec-path-from-shell package.+
++It will define HISTFILE, HISTSIZE etc environment variables?+
+This heading's elisp settings seem to enough so far.
+
+I just need to figure out how to prevent eshell from wiping out my bash eternal history by truncating it to 500 or less lines.
+#+begin_src emacs-lisp :tangle new2.el
+;;(setq eshell-history-size nil) ;;nil means read from $HISTSIZE, which I have set to infinite.
+#+end_src
+^didnt work.
+This seems to work for me:-
+#+begin_src emacs-lisp :tangle new2.el
+(setq eshell-history-size 1000000)
+#+end_src
+
+I found that eshell complains if it finds non-ascii characters in history.
+
+Let me massage the my bash history file.
+I need a helper function to cleanup non-ascii characters from my old bash history
+#+begin_src emacs-lisp :tangle new2.el
+(defun occur-non-ascii ()
+  "Find any non-ascii characters in the current buffer."
+  (interactive)
+  (occur "[^[:ascii:]]"))
+#+end_src
+^I went and ran above on my bash eternal history file. Deleted all occurances of non-ascii characters.
+Actually, the above is no longer necessary, because I have subsequently added utf-8 support for eshell history.
+
+Let me set eshell to use my bash eternal history file.
+Henceforth, =~/.emacs.d/eshell/history/= is redundant and unused.
+#+begin_src emacs-lisp :tangle new2.el
+(setq eshell-history-file-name "~/bash_eternal_history/.bash_eternal_history")
+#+end_src
+
+Let me setup utf-8 as the encoding to be used when writing my eshell history file
+
+Warning: Note that this kind of let binding will make eshell-write-history not prompt me even when the characters can't be encoded.
+#+begin_src emacs-lisp :tangle new2.el
+(defun set-utf8-as-write-encoding0 (orig-fun &rest args)
+  ;;(message "Advicing0 %s to write using utf-8" orig-fun)
+  (let ((coding-system-for-write 'utf-8))
+    (apply orig-fun args)))
+
+(advice-add 'eshell-write-history :around #'set-utf8-as-write-encoding0)
+#+end_src
+^Aside,
+I find ~advice-add~ more intuitive that ~defadvice~, maybe because the former is newer than the latter.
+
+
+I initially bound C-r in ~(use-package eshell~, but it didn't work.
+Because ~eshell-hist-mode~ overrode that keybinding.
+Therefore,
+1. I need to find the package that defines ~eshell-hist-mode-map~
+[[help:eshell-hist-mode]]
+#+begin_quote from docs
+eshell-hist-mode is a buffer-local variable defined in em-hist.el.gz.
+#+end_quote
+2. Add an ~(use-package~ definition for it
+3. Bind my keybindings in its ~:bind~
+   
+Let's bind eshell eternal history search to the expected keybinding of =C-r=
+I found that ~helm-eshell-history~ was too slow, especially with my large history file.
++Therefore, I instead chose the faster [[*helm-shell-history][helm-shell-history]]+. It had a bug.
+I use ~anoop/eshell-history~ which is fast
+
+#+begin_src emacs-lisp :tangle new2.el
+  (use-package em-hist
+    :ensure nil ;;builtin mode
+    :bind
+    (:map eshell-hist-mode-map
+	  ("C-r" . anoop/eshell-history)
+	  ("C-c r" . isearch-backward))
+    :custom
+    (eshell-hist-ignoredups t)
+    :config
+    <<em-hist/config>>)
+#+end_src
+On first glance, it appears that the fastness is due to a clever use of ~sed~ to split and search the history file in chunks.
+
+*** Now, let me level up my eshell game some more by reading ambrevar's eshell blogpost
+[[https://web.archive.org/web/20201111230155/https://ambrevar.xyz/emacs-eshell/][Eshell as a main shell]]
+
+Counterintuitive fact:- eshell doesnt run bash. Its a shell of its own.
+eshell and bash are shells. When I put it that way, eshell running bash sounds absurd.
+vterm and xterm are terminals.
+[[https://superuser.com/a/144668/642055][Shell vs Terminal vs Console]]
+
+Eshell does support pipe operator, aka ~|~ and output redirection using ~>~, ~>>~, ~2>~
+
+Eshell doesnt support input redirection, aka  ~<~
+^Not a big deal, because of the following trick.
+
+Eg:- In bash, I would do:-
+#+begin_src bash :results output verbatim :dir /tmp/
+touch 1.txt
+echo "Anoop" > 1.txt
+tr 'A' 'S' < 1.txt
+#+end_src
+
+#+RESULTS:
+: Snoop
+
+In eshell, Input redirection in eshell can be achieved with the following trick:-
+~cat some_file ~| some_command~
+Eg:-
+~cat 1.txt | tr 'A' 'S'~
+
+But the trick doesnt work inside org babel source blocks
+#+begin_src eshell :dir /tmp/ :results output
+rm 1.txt
+touch 1.txt
+echo "Anoop" > 1.txt
+cat 1.txt | tr 'A' 'S'
+#+end_src
+
+#+RESULTS:
+
+Output can be redirected to a temp emacs buffer. This is quite fast in my experience.
+#+begin_src eshell :results output verbatim
+wc /tmp/temp.org >> #<buffer my-temp-buffer-name>
+#+end_src
+
+#+RESULTS:
+:  13794  54898 546396 /tmp/temp.org
+
+*** How eshell+helm makes several bash thingies redundant
+/Tldr/
+=C-c e= replaces =cd=  (This stopped working when I switched to Vertico)
+=C-c y= replaces =filename tab completion=. (For Vertico, just pressing TAB does the right thing)
+
+I can switch change directories in eshell by seeking help from helm's =C-x C-f M-e=
+It runs ~helm-ff-run-switch-to-shell~
+This command switches the eshell's directory to that of the directory on which =M-e= was pressed.
+
+If multiple eshells are running, you will be prompted to pick the eshell whose directory you want to change.
+
+In helm find file interface, =C-l= goes up a directory.
+This makes ~cd ..~ redundant for me.
+
+Above selected folders are saved to helm find files history.
+=M-p= and =M-n= will let me browse that history.
+
+Shell's tab completion of file names is made redundant by the following:-
+=C-c i= :  Insert filename including path  of the current 'helm find files selection' into eshell
+---------------------------------------------------------------------------------------------------
+More intuitive keybindings:-
+#+begin_src emacs-lisp :noweb-ref "helm-files binds"
+("C-c e" . helm-ff-run-switch-to-shell)
+("C-c y" . helm-ff-run-complete-fn-at-point)
+#+end_src
+
+*** eshell must load all bash aliases
+source: https://emacs.stackexchange.com/a/74388
+#+begin_src emacs-lisp :tangle new2.el
+(require 'cl-lib)
+
+(defun eshell-load-bash-aliases ()
+  "Read Bash aliases and add them to the list of eshell aliases."
+  ;; Bash needs to be run - temporarily - interactively
+  ;; in order to get the list of aliases.
+  (with-temp-buffer
+    (call-process "bash" nil '(t nil) nil "-ci" "alias")
+    (goto-char (point-min))
+    (cl-letf (((symbol-function 'eshell-write-aliases-list) #'ignore))
+      (while (re-search-forward "alias \\(.+\\)='\\(.+\\)'$" nil t)
+        (eshell/alias (match-string 1) (match-string 2))))
+    (eshell-write-aliases-list)))
+
+;; We only want Bash aliases to be loaded when Eshell loads its own aliases,
+;; rather than every time `eshell-mode' is enabled.
+(add-hook 'eshell-alias-load-hook 'eshell-load-bash-aliases)
+#+end_src
+
+Unfortunately, above setup requires a restart of emacs after every aliases edit to =.bashrc= file
+*** =open= alias for eshell
+It is easy to define eshell aliases in emacs config itself
+#+begin_src emacs-lisp :tangle new2.el
+;; Alias 'open' to 'find-file'
+(defun eshell/open (file)
+  (find-file file))
+#+end_src
+*** When a TUI process exits, close the buffer associated with that and return to eshell
+Eg: Exiting =nmtui= leaves a zombie buffer associated with it. Kill that zombie.
+#+begin_src emacs-lisp :tangle new2.el
+(advice-add 'term-handle-exit :after (lambda (&optional _process-name _msg) (anoop/kill-this-buffer)))
+#+end_src
+*** ~anoop/eshell-history~
+This is just a simple vertico wrapper for a eshell builtin function.
+ie, Calling the builtin ~eshell-history-ring~ using Vertico.
+#+begin_src emacs-lisp :noweb-ref "em-hist/config"
+(defun anoop/eshell-history ()
+  (interactive)
+  (insert
+   (completing-read "Eshell history0: "
+                    (delete-dups
+                     (ring-elements eshell-history-ring)))))
+#+end_src
+The match is case insensitive, which I prefer.
+*** TODO deprecate htop, ~du -sh~, qbittorrent
+#+begin_quote Ambrevar's praise
+Switching to Eshell marked a milestone for me.
+From then on I dropped all my crufty curses-based programs and switched to much more powerful Emacs alternatives such as:-
+
+git (CLI), gitk, tig, etc. -> magit
+htop -> symon (aka lemon), proced, helm-top, etc.
+abook -> org-contacts
+mutt -> mu4e, gnus, notmuch
+ncdu -> dired-du
+cmus/moc -> EMMS
+newsbeuter -> elfeed, gnus
+weechat, irssi -> ERC, etc.
+rtorrent, transmission-cli -> transmission.el
+#+end_quote
+
+*** TODO [[https://web.archive.org/web/20201112021608/https://www.masteringemacs.org/article/complete-guide-mastering-eshell][Mastering Eshell - Mastering Emacs]]
+^Reread it and give attention to learning about Globbing and Filtering
+*** TODO Doubt
+How do I call my ~$(today)~ bash function from within eshell?
+Both these are wrong answer: ~*$(*today)~ and ~*$(today)~
+*** Future todos
+Learn =cd /sshx:some_alias:~/= with tab completion by vertico.
