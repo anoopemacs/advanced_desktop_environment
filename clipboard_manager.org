@@ -1,0 +1,357 @@
+* integrate system clipboard with emacs kill-ring
+** browse-kill-ring
+Lets configure a dependency enhancement package
+#+begin_src emacs-lisp :tangle clipboard_manager.el
+(use-package browse-kill-ring
+  :bind
+  (("M-y" . browse-kill-ring)
+   (:map browse-kill-ring-mode-map
+         ("C-n" . browse-kill-ring-forward)
+         ("C-p" . browse-kill-ring-previous)))
+  :custom
+  (browse-kill-ring-separator (if window-system
+                                  "──────────────────────────────────────────────────────────────────────────────────"
+                                "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"))
+  (browse-kill-ring-separator-face '((nil (:foreground "gray"))))
+  :config
+  (setq browse-kill-ring-show-preview nil)
+  (setq browse-kill-ring-highlight-current-entry t)
+  <<browse-kill-ring/config>>)
+#+end_src
+
+#+begin_src emacs-lisp :noweb-ref "browse-kill-ring/config"
+(define-advice browse-kill-ring-insert-and-highlight (:around (old-function str) exwm-paste)
+  "Paste the selection appropriately in exwm mode buffers"
+  (if (derived-mode-p 'exwm-mode)
+      (progn
+        (kill-new str)
+        (exwm-input--fake-key ?\C-v)
+        (exwm-input--fake-key ?\C-e))
+    (funcall old-function str)))
+#+end_src
+But, browse-kill-ring breaks *tempo* though 😞
+
+🤔Why cant I replace browse-kill-ring with helm-show-kill-ring ?
+
+** clipmon
+Its readme: [[https://github.com/bburns/clipmon][bburns/clipmon: Clipboard monitor for Emacs - monitors clipboard and pastes contents on change]]
+#+begin_src emacs-lisp :tangle clipboard_manager.el
+(use-package clipmon
+  :config
+  ;;   ;;Clipmon auto adds any system clipboard entry into emacs kill ring every 1 second
+  ;;   (setq clipmon-timer-interval 1) 
+  ;;   ;;anything thats inside system clipboard is now always available to me in kill ring
+  ;;   (clipmon-mode)
+  ;;   ;;Trial and error below 3 lines, t-t-nil seems to work for now
+  ;;   (setq select-enable-clipboard t)
+  ;;   (setq select-enable-primary nil)
+  ;;   (setq save-interprogram-paste-before-kill nil)
+  ;;   ;;trying out suggestions from lists.gnu.org/archive/html/bug-gnu-emacs/2015-01/msg00922.html
+  ;;   ;;(setq save-interprogram-paste-before-kill t)
+
+  <<Clipmon config>>)
+#+end_src
+
+Replace =browse-kill-ring= with =helm-ring= ?
+
+With a large RAM, I can safely increase the kill ring size
+#+begin_src emacs-lisp :noweb-ref "Clipmon config"
+(setq kill-ring-max 1000)
+#+end_src
+
+The default config inserts into emacs kill ring once every 2 seconds.
+Meaning, I cannot copy two things within 2 seconds.
+I think, on a fast PC, I can increase the default polling to every 1 seconds.
+#+begin_src emacs-lisp :noweb-ref "Clipmon config"
+(setq clipmon-timer-interval 1)
+#+end_src
+
+Do monitor the system clipboard, and,
+keep adding its contents to the emacs kill ring
+#+begin_src emacs-lisp :noweb-ref "Clipmon config"
+;; monitor the system clipboard and add any changes to the kill ring
+(add-to-list 'after-init-hook 'clipmon-mode-start)
+#+end_src
+
+Do not change the default cursor color
+#+begin_src emacs-lisp :noweb-ref "Clipmon config"
+(setq clipmon-autoinsert-color nil)
+#+end_src
+*** CANCELLED attempt bugfix for qutebrowser
+Bug: When I copy multiple lines in qutebrowser, only the last copy is added to the kill ring
+However, after each copy, if I switch windows =M-o=, then each copy is being added to the kill ring
+
+Reading the code, ~clipmon--on-clipboard-change~ adds to kill ring.
+I found that this function itself isnt called. Therefore, bug is external to this function.
+
+Who is calling above function? Ans: ~clipmon--check-clipboard~
+I found that this function is called every 1 second. Therefore, bug is internal to this function.
+
+I found that the value of ~(clipmon--clipboard-contents)~ isnt getting updated.
+However, I found that it *is updated* if I just move the cursor outside the qutebrowser window. *I will use this to ductape fix this bug*
+
+Bug is inside ~clipmon--clipboard-contents~. 
+After each copy, I observed that ~text~ is nilled.
++Maybe, this cond is always entered:- ~((string= text top-of-kill-ring) nil)~ due to me having turned on some kind of emacs primary selection bla mode?+
+
+Therefore, bug is inside ~(clipmon--remove-properties (clipmon--get-selection))~
+I found that ~(clipmon--get-selection)~ is nilled. So bug is inside that.
+Attempted patch
+#+begin_src emacs-lisp
+(defun clipmon--get-selection ()
+  "anoop/Get the clipboard contents"
+  ;;(execute-kbd-macro (kbd "M-o"))
+  (other-window 1)
+  (let ((s (ignore-errors (gui-get-selection 'CLIPBOARD))))
+    (message "Copied==%s" s)
+    (other-window 1)
+    (other-window 1)
+    s))
+#+end_src
+^Above leads to lots of jitter whenever clipmon polls.
+
+So, bug is inside this cond clause, ~(ignore-errors (gui-get-selection 'CLIPBOARD))~
+Whenever I copy something in qute, ~(gui-get-selection 'CLIPBOARD)~ is getting nilled.
+
+Bug is inside ~(gui-get-selection 'CLIPBOARD)~
+tldr: Above function requires that I switch to a non-X window once before calling it.
+
+Let me just do a dummy switch to =*scratch*= buffer once before calling above function. I stole this idea from [[https://old.reddit.com/r/emacs/comments/hij4ga/weekly_tipstricketc_thread/fwgghes/][ji99 comments on Weekly tips/trick/etc/ thread]]
+#+begin_src emacs-lisp :noweb-ref "unused/anoop/gui-get-selection"
+(let ((current-buffer0 (current-buffer)))
+    (switch-to-buffer "*scratch*")
+    (let ((copied-text0 (gui-get-selection 'CLIPBOARD)))
+      ;;(kill-new copied-text0)
+      ;;(message "Copied: %s" copied-text0)
+      (switch-to-buffer current-buffer0)
+      copied-text0))
+#+end_src
+
+Let me patch ~(clipmon--get-selection)~. It doesnt work. The bug is still there.
+Let me instead patch ~(clipmon--clipboard-contents)~.
+#+begin_src emacs-lisp :noweb-ref "unused/Clipmon config"
+;; abandoned
+#+end_src
+
+I have instead chosen to use emacsclient call from qute as my solution:- [[*qutebrowser config to handle kill ring using emacsclient][qutebrowser config to handle kill ring using emacsclient]]
+*** CANCELLED COMMENT Let me use a different function to copy when inside X windows:- (move this to exwm org heading)
+[[https://old.reddit.com/r/emacs/comments/hij4ga/weekly_tipstricketc_thread/fwgghes/][ji99 comments on Weekly tips/trick/etc/ thread]]
+#+begin_src emacs-lisp
+(defun clip-to-kill ()
+  "Add X-window copied text to the emacs kill ring"
+  (interactive)
+  (message "entered function.")
+  (let ((buffer (current-buffer)))
+    (switch-to-buffer "*scratch*")
+    (let ((copy (substring-no-properties (gui-get-selection 'CLIPBOARD))))
+      (kill-new copy)
+      (message "Copied: %s" copy))
+    (switch-to-buffer buffer)
+    ))
+;;(global-set-key (kbd "<f9>") 'clip-to-kill) ;;doesnt work for exwm
+#+end_src
+Above did not work even when I limited myself to a single emacs frame
+
+Let me try using ~other-window~ instead of ~switch-to-buffer~
+#+begin_src emacs-lisp
+(defun clip-to-kill ()
+  "Add X-window copied text to the emacs kill ring"
+  (interactive)
+  (message "entered function")
+  (kmacro "M-o M-o") ;;cycles back to qutebrowser
+  (let ((copy (substring-no-properties (gui-get-selection 'CLIPBOARD))))
+    (kill-new copy)
+    (message "Copied: %s" copy))
+  (kmacro "M-o") ;;cycles back to qutebrowser
+  )
+#+end_src
+
+I need to keybind it in exwm-input-global-keys ~([?\M-z] . clip-to-kill)~
+abandoned because it is not working as expected.
+
+** qutebrowser config to handle kill ring using emacsclient
+Send a command to /emacsclient/ from inside qutebrowser.
+=M-w= should call:-
+#+begin_src bash
+emacsclient --eval '(kill-new "The selected text")'
+#+end_src
+I will change this setting inside qutebrowser config.py
+Above will handle text copy inside qutebrowser. For other X windows such as Okular and Google Chrome, clipmon will continue to work, albiet just the last copy is added to kill ring.
+
+** COMMENT gpastel
+disabled because of [[*There is something wrong with gpaste and gpastel][There is something wrong with gpaste and gpastel]]
+Also, its author has abandoned it:-
+#+begin_quote https://github.com/DamienCassou/gpastel/issues/6
+As I'm not using GPaste anymore, I'm not going to drive any change in this project.
+#+end_quote
+*** gpastel
+^This project is no longer maintained by its author
+#+begin_quote https://github.com/DamienCassou/gpastel/issues/6
+I guess GPaste has changed in a backward incompatible way. As I'm not using GPaste anymore, I'm not going to drive any change in this project. But I will review PRs. I'm fine giving up backward compatibility with old versions of GPaste if that makes the life of the PR author easier.
+#+end_quote
+
+Why gpaste > clipmon:-
+#+begin_quote :by gpastel creator
+@QiangF
+
+There is also clipmon, which doen't need an exteranl app.
+
+true. I was using something similar before but didn't like the fact that the code was polling every X seconds as it was missing some texts sometimes (also I don't like polling). The gpaste approach is inherently better because it relies on events and not on polling.
+#+end_quote
+
+Firstly, configure the C program Gpaste
+#+begin_src 
+pacman -S gpaste
+pacman -S gnome-shell #?required by gpaste for some reason
+#+end_src
+
+Lets configure the elisp package
+#+begin_src emacs-lisp :tangle clipboard_manager.el
+(use-package gpastel
+  :config
+  ;;(gpastel--start-gpaste-daemon)
+  ;;(gpastel--start-listening)
+  (add-hook 'exwm-init-hook 'gpastel-mode))
+#+end_src
+
+Gpastel  is inserting each entry twice into the kill ring
+To fix this bug, I am using this workaround. This workaround disallows duplicated consecutive entries
+#+begin_src emacs-lisp :tangle clipboard_manager.el
+;;(setq kill-do-not-save-duplicates t)
+#+end_src
+
++Now that I am using qutebrowser, I think I can deprecate gpastel. Because, in qutebrowser, I am able to manipulate emacs kill ring, through elisp userscript.+
+Above is true for copy selection as org quote. But, it isnt true for simple copy selection =C-w= in qutebrowser.
+*** trial and error to fix gpastel bugs
+why is the C-program gpaste server failing to start, ie, why is daemon not starting
+
+Trying to start using systemd fails as well:-
+#+begin_src bash :results drawer
+systemctl --user status org.gnome.GPaste.service
+#+end_src
+
+#+RESULTS:
+:results:
+○ org.gnome.GPaste.service
+     Loaded: masked (Reason: Unit org.gnome.GPaste.service is masked.)
+     Active: inactive (dead)
+
+Dec 12 10:43:02 imac0 systemd[871]: Starting GPaste daemon...
+Dec 12 10:43:02 imac0 gpaste-daemon[2160]: Failed to load module "colorreload-gtk-module"
+Dec 12 10:43:02 imac0 gpaste-daemon[2160]: Failed to load module "window-decorations-gtk-module"
+Dec 12 10:43:02 imac0 systemd[871]: Started GPaste daemon.
+Dec 12 10:43:02 imac0 gpaste-daemon[2160]: Couldn't grab keybindings with gnome-shell: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.gnome.Shell was not provided by any .service files
+:end:
+=org.gnome.Shell.service= file has gotten renamed in recent versions of =gnome-shell=. The gpastel author hasnt updated his code accordingly.
+See:-
+#+begin_src bash :results drawer
+apt-file list gnome-shell
+#+end_src
+
+#+RESULTS:
+:results:
+gnome-shell: /etc/xdg/autostart/gnome-shell-overrides-migration.desktop
+gnome-shell: /usr/bin/gnome-extensions
+gnome-shell: /usr/bin/gnome-shell
+gnome-shell: /usr/bin/gnome-shell-extension-tool
+gnome-shell: /usr/bin/gnome-shell-perf-tool
+gnome-shell: /usr/lib/gnome-shell/Gvc-1.0.typelib
+gnome-shell: /usr/lib/gnome-shell/Shell-0.1.typelib
+gnome-shell: /usr/lib/gnome-shell/St-1.0.typelib
+gnome-shell: /usr/lib/gnome-shell/girepository-1.0/Shew-0.typelib
+gnome-shell: /usr/lib/gnome-shell/libgnome-shell-menu.so
+gnome-shell: /usr/lib/gnome-shell/libgnome-shell.so
+gnome-shell: /usr/lib/gnome-shell/libgvc.so
+gnome-shell: /usr/lib/gnome-shell/libshew-0.so
+gnome-shell: /usr/lib/gnome-shell/libst-1.0.so
+gnome-shell: /usr/libexec/gnome-shell-calendar-server
+gnome-shell: /usr/libexec/gnome-shell-hotplug-sniffer
+gnome-shell: /usr/libexec/gnome-shell-overrides-migration.sh
+gnome-shell: /usr/libexec/gnome-shell-perf-helper
+gnome-shell: /usr/libexec/gnome-shell-portal-helper
+gnome-shell: /usr/share/applications/evolution-calendar.desktop
+gnome-shell: /usr/share/applications/org.gnome.Shell.Extensions.desktop
+gnome-shell: /usr/share/applications/org.gnome.Shell.PortalHelper.desktop
+gnome-shell: /usr/share/applications/org.gnome.Shell.desktop
+gnome-shell: /usr/share/bash-completion/completions/gnome-extensions
+gnome-shell: /usr/share/bug/gnome-shell/control
+gnome-shell: /usr/share/dbus-1/services/org.gnome.Extensions.service
+gnome-shell: /usr/share/dbus-1/services/org.gnome.ScreenSaver.service
+gnome-shell: /usr/share/dbus-1/services/org.gnome.Shell.CalendarServer.service
+gnome-shell: /usr/share/dbus-1/services/org.gnome.Shell.Extensions.service
+gnome-shell: /usr/share/dbus-1/services/org.gnome.Shell.HotplugSniffer.service
+gnome-shell: /usr/share/dbus-1/services/org.gnome.Shell.Notifications.service
+gnome-shell: /usr/share/dbus-1/services/org.gnome.Shell.PortalHelper.service
+gnome-shell: /usr/share/dbus-1/services/org.gnome.Shell.Screencast.service
+gnome-shell: /usr/share/doc/gnome-shell/NEWS.gz
+gnome-shell: /usr/share/doc/gnome-shell/README.md
+gnome-shell: /usr/share/doc/gnome-shell/changelog.Debian.gz
+gnome-shell: /usr/share/doc/gnome-shell/copyright
+gnome-shell: /usr/share/glib-2.0/schemas/10_gnome-shell.gschema.override
+gnome-shell: /usr/share/lintian/overrides/gnome-shell
+gnome-shell: /usr/share/man/man1/gnome-extensions.1.gz
+gnome-shell: /usr/share/man/man1/gnome-shell.1.gz
+gnome-shell: /usr/share/xdg-desktop-portal/portals/gnome-shell.portal
+:end:
+
+Only way to start the daemon for me0
+source: https://github.com/Keruspe/GPaste/issues/296
+#+begin_src 
+/usr/lib/gpaste/gpaste-daemon --gapplication-service
+#+end_src
+
+How to check if server started properly:-
+#+begin_src shell
+gpaste-client daemon-version
+#+end_src
+
+How to start the client ui:- the recommended approach of /gpaste-client ui/ fails for me for some reason
+This works though:- =/usr/lib/gpaste/gpaste-ui=
+
+With the UI launched, now you can try to pinpoint all kinds of elusive emacs to X-window copy-paste bugs in
+my emacs dotfiles.
+
+This section is buggy:-
+The gpaste ui window is kinda intrusive & doesnt minimize well on exwm
+A workaround is to run the gpaste applet:-
+=/home/anoop/today/2023-01-05/gpaste-applet/bin/gpaste-applet=
+Now clicking on the applet in exwm system tray will toggle minimize gpaste-ui
+*** There is something wrong with gpaste and gpastel
+Take a look at ~gpaste-client ui~
+Every time I copy something in qutebrowser, I see an entry added to the gpastel clipboard.
+I want =gpastel= to ensure that all those entries are accessible from the emacs kill ring.
+Alas, that isnt the case.
+Therefore, =gpaste=, whose primary purpose was to enable me to copy multiple items from qutebrowser,
+fails at this task.
+
+** COMMENT Using emacs builtin functionality to enable copying multiple items to kill ring when inside qutebrowser
+^disabled because doesnt work, for eg, inside qutebrowser
+
+Refer to [[https://emacs.stackexchange.com/questions/766/add-operating-system-clipboard-to-kill-ring][copy paste - Add operating system clipboard to kill ring - Emacs Stack Exchange]]
+
+When killing, add whatever's in the system clipboard to kill ring; if it isn't there already,
+so I can get it back with <M-y>.
++This was disabled once I started using Gpastel mode.+
+^Gpastel still loses latest clipboard entry if you copy something on top of it, so re-enabled below on 12th Feb, 2023.
+
+#+begin_src emacs-lisp :tangle clipboard_manager.el
+(setq save-interprogram-paste-before-kill t)
+#+end_src
+
+Push the latest emacs yank into the top of the system clipboard
+#+begin_src emacs-lisp :tangle clipboard_manager.el
+(setq yank-pop-change-selection t)
+#+end_src
+
+Dependency for above two to work properly
+#+begin_src emacs-lisp :tangle clipboard_manager.el
+(setq select-enable-clipboard t)
+#+end_src
+*** COMMENT Checkout [[https://elpa.gnu.org/packages/xclip.html][GNU ELPA - xclip]]
+** COMMENT alternative package, cliphist
+[[https://github.com/redguardtoo/cliphist][redguardtoo/cliphist: Paste from clipboard manager into Emacs]]
+#+begin_quote https://www.emacswiki.org/emacs/CopyAndPaste#toc12
+I could not get either gpaste/gpastel or cliphist to work for me.
+#+end_quote
+^cliphist is known to not work
+
