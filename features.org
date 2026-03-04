@@ -2,7 +2,7 @@
 Custom Linux desktop environment built on EXWM and Elisp programming language, integrated with Xorg.
 
 ** Core Window Management
-- Built on __EXWM__ (Emacs X Window Manager) with Xorg display server.
+- Built on **EXWM** (Emacs X Window Manager) with Xorg display server.
 - Supports **line-mode / char-mode** switching for flexible key handling.
 - Custom `anup/other-window` implementation for **multi-monitor aware window cycling**.
 - Mouse-focus handling via **exwm-mff** (mouse follows focus).
